@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # TechJam Conversational E-Commerce Search Challenge
 
 Build an AI shopping agent that asks useful follow-up questions and recommends the customer's hidden target product within at most 10 turns.
@@ -109,3 +110,7 @@ evaluator/local_evaluator.py      public-set simulator and scorer
 
 The catalog and sessions are derived from Amazon Reviews 2023 by McAuley Lab, UCSD. See `DATA_ATTRIBUTION.md` before using or redistributing the data.
 Sessions are sampled deterministically from the official Clothing 5-core leave-last-out split and joined to the frozen catalog.
+=======
+# tiktouch
+Tiktok TechJam 2026, Group tiktouch
+>>>>>>> 749df73a47778437e444f5a81146752a9389b2b4
