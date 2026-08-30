@@ -1,0 +1,201 @@
+{
+  "method": "grouped_stratified_cross_validation",
+  "folds": 5,
+  "seed": 2026,
+  "candidate_configs": {
+    "starter_weights": {
+      "field_weights": [
+        6.0,
+        4.0,
+        2.5,
+        2.5,
+        1.5,
+        1.0
+      ]
+    },
+    "balanced": {
+      "field_weights": [
+        6.0,
+        6.0,
+        4.0,
+        3.0,
+        2.5,
+        1.0
+      ]
+    },
+    "feature_aware": {
+      "field_weights": [
+        6.0,
+        6.0,
+        6.0,
+        3.0,
+        3.0,
+        1.0
+      ]
+    }
+  },
+  "selection_counts": {
+    "feature_aware": 5
+  },
+  "cross_validated": {
+    "sample_count": 200,
+    "hit_rate_at_10": 0.97,
+    "mrr": 0.520956,
+    "mttc": 3.93,
+    "efficiency": 0.707,
+    "technical_score": 0.782687,
+    "fold_score_mean": 0.782687,
+    "fold_score_stdev": 0.023984
+  },
+  "full_set_robustness": {
+    "starter_weights": {
+      "original": {
+        "sample_count": 200,
+        "hit_rate_at_10": 0.945,
+        "mrr": 0.499712,
+        "mttc": 4.26,
+        "efficiency": 0.674,
+        "technical_score": 0.757214
+      },
+      "paraphrased": {
+        "sample_count": 200,
+        "hit_rate_at_10": 0.925,
+        "mrr": 0.474887,
+        "mttc": 4.45,
+        "efficiency": 0.655,
+        "technical_score": 0.735966
+      },
+      "worst_case_technical_score": 0.735966
+    },
+    "balanced": {
+      "original": {
+        "sample_count": 200,
+        "hit_rate_at_10": 0.96,
+        "mrr": 0.498109,
+        "mttc": 4.005,
+        "efficiency": 0.6995,
+        "technical_score": 0.769333
+      },
+      "paraphrased": {
+        "sample_count": 200,
+        "hit_rate_at_10": 0.93,
+        "mrr": 0.474458,
+        "mttc": 4.395,
+        "efficiency": 0.6605,
+        "technical_score": 0.739437
+      },
+      "worst_case_technical_score": 0.739437
+    },
+    "feature_aware": {
+      "original": {
+        "sample_count": 200,
+        "hit_rate_at_10": 0.97,
+        "mrr": 0.520956,
+        "mttc": 3.93,
+        "efficiency": 0.707,
+        "technical_score": 0.782687
+      },
+      "paraphrased": {
+        "sample_count": 200,
+        "hit_rate_at_10": 0.93,
+        "mrr": 0.483492,
+        "mttc": 4.435,
+        "efficiency": 0.6565,
+        "technical_score": 0.741348
+      },
+      "worst_case_technical_score": 0.741348
+    }
+  },
+  "fold_reports": [
+    {
+      "fold": 0,
+      "sample_count": 40,
+      "selected_config": "feature_aware",
+      "training_scores": {
+        "starter_weights": 0.767831,
+        "balanced": 0.779688,
+        "feature_aware": 0.789488
+      },
+      "validation": {
+        "sample_count": 40,
+        "hit_rate_at_10": 0.975,
+        "mrr": 0.44494,
+        "mttc": 4.275,
+        "efficiency": 0.6725,
+        "technical_score": 0.755482
+      }
+    },
+    {
+      "fold": 1,
+      "sample_count": 40,
+      "selected_config": "feature_aware",
+      "training_scores": {
+        "starter_weights": 0.762149,
+        "balanced": 0.769016,
+        "feature_aware": 0.782344
+      },
+      "validation": {
+        "sample_count": 40,
+        "hit_rate_at_10": 0.975,
+        "mrr": 0.545188,
+        "mttc": 4.35,
+        "efficiency": 0.665,
+        "technical_score": 0.784056
+      }
+    },
+    {
+      "fold": 2,
+      "sample_count": 40,
+      "selected_config": "feature_aware",
+      "training_scores": {
+        "starter_weights": 0.763073,
+        "balanced": 0.774606,
+        "feature_aware": 0.788789
+      },
+      "validation": {
+        "sample_count": 40,
+        "hit_rate_at_10": 0.95,
+        "mrr": 0.489256,
+        "mttc": 4.175,
+        "efficiency": 0.6825,
+        "technical_score": 0.758277
+      }
+    },
+    {
+      "fold": 3,
+      "sample_count": 40,
+      "selected_config": "feature_aware",
+      "training_scores": {
+        "starter_weights": 0.748448,
+        "balanced": 0.761185,
+        "feature_aware": 0.773469
+      },
+      "validation": {
+        "sample_count": 40,
+        "hit_rate_at_10": 1.0,
+        "mrr": 0.558532,
+        "mttc": 3.4,
+        "efficiency": 0.76,
+        "technical_score": 0.81956
+      }
+    },
+    {
+      "fold": 4,
+      "sample_count": 40,
+      "selected_config": "feature_aware",
+      "training_scores": {
+        "starter_weights": 0.744568,
+        "balanced": 0.762169,
+        "feature_aware": 0.779344
+      },
+      "validation": {
+        "sample_count": 40,
+        "hit_rate_at_10": 0.95,
+        "mrr": 0.566865,
+        "mttc": 3.45,
+        "efficiency": 0.755,
+        "technical_score": 0.796059
+      }
+    }
+  ]
+}
