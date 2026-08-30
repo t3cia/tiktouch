@@ -116,7 +116,10 @@ Sessions are sampled deterministically from the official Clothing 5-core leave-l
 
 `weak_intent_agent.py` trains a local TF-IDF conversation router, catalog cosine
 index, and retrieval-confidence model. It retains weighted BM25 as its primary
-retriever and uses cosine similarity only as a high-confidence tie-breaker.
+retriever and uses cosine similarity only as a high-confidence tie-breaker. During
+training it also extracts compact product attributes. At runtime the agent tracks
+known, asked, and declined intent slots, then asks about the unanswered attribute
+with the best candidate-weighted coverage and information gain.
 
 ```powershell
 python -m pip install -r weak_requirements.txt

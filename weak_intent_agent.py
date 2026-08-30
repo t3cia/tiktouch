@@ -57,6 +57,39 @@ STOPWORDS = {
 QUESTION_ORDER = (
     "material", "color", "feature", "size", "style", "use_case", "brand", "budget", "other"
 )
+ATTRIBUTE_PRIORS = {
+    "material": 1.00,
+    "color": 0.92,
+    "feature": 0.95,
+    "size": 0.68,
+    "style": 0.76,
+    "use_case": 0.78,
+    "brand": 0.52,
+    "budget": 0.70,
+}
+PROFILE_ATTRIBUTE_TAGS = {
+    "material": {"material", "comfort", "warmth"},
+    "color": {"color", "style"},
+    "feature": {"comfort", "durability", "weather"},
+    "size": {"fit", "size"},
+    "style": {"style"},
+    "use_case": {"weather", "use case"},
+    "brand": {"brand"},
+    "budget": {"budget", "price"},
+}
+STYLE_TERMS = (
+    "casual", "formal", "classic", "modern", "vintage", "slim fit", "regular fit",
+    "relaxed fit", "crew neck", "v-neck", "long sleeve", "short sleeve",
+)
+USE_CASE_TERMS = (
+    "hiking", "running", "gym", "winter", "outdoor", "work", "wedding", "travel",
+    "cycling", "walking", "sports", "swimming", "yoga",
+)
+FEATURE_TERMS = (
+    "waterproof", "water resistant", "lightweight", "breathable", "moisture wicking",
+    "quick dry", "stretch", "compression", "insulated", "warm", "comfortable",
+    "durable", "uv protection", "non slip", "arch support", "padded", "adjustable",
+)
 PROMPTS = {
     "material": "Do you have a material preference?",
     "color": "Is there a color you prefer?",
@@ -69,7 +102,7 @@ PROMPTS = {
     "other": "Is there another requirement I should prioritize?",
 }
 SEARCH_FIELDS = ("title", "categories", "features", "details", "store", "description")
-ARTIFACT_VERSION = 1
+ARTIFACT_VERSION = 2
 
 
 def _clean(value: object, limit: int = 1800) -> str:
@@ -107,6 +140,80 @@ def product_text(product: dict) -> str:
     if product.get("price") not in (None, ""):
         sections.append(("price", f"${product['price']}"))
     return " | ".join(f"{name}: {value}" for name, value in sections if value)[:1800]
+
+
+def _matched_terms(text: str, terms: Sequence[str]) -> list[str]:
+    lowered = text.lower()
+    return [term for term in terms if re.search(rf"\b{re.escape(term)}\b", lowered)]
+
+
+def _budget_bucket(value: object) -> str | None:
+    try:
+        price = float(value)
+    except (TypeError, ValueError):
+        return None
+    if price < 25:
+        return "under $25"
+    if price < 50:
+        return "$25–$50"
+    if price < 100:
+        return "$50–$100"
+    return "$100 or more"
+
+
+def extract_product_attributes(product: dict) -> dict[str, list[str]]:
+    """Extract compact, user-questionable attributes from released metadata."""
+    text = product_text(product).lower()
+    attributes: dict[str, list[str]] = {}
+    materials = sorted({match.group(0).lower() for match in MATERIAL_RE.finditer(text)})
+    colors = sorted({match.group(0).lower().replace("grey", "gray") for match in COLOR_RE.finditer(text)})
+    if materials:
+        attributes["material"] = materials
+    if colors:
+        attributes["color"] = colors
+    styles = _matched_terms(text, STYLE_TERMS)
+    use_cases = _matched_terms(text, USE_CASE_TERMS)
+    features = _matched_terms(text, FEATURE_TERMS)
+    if styles:
+        attributes["style"] = styles
+    if use_cases:
+        attributes["use_case"] = use_cases
+    if features:
+        attributes["feature"] = features
+    details = product.get("details") or {}
+    if isinstance(details, dict):
+        size_text = " ".join(
+            str(value) for key, value in details.items()
+            if any(token in str(key).lower() for token in ("size", "width", "fit"))
+        )
+        size_values = [value.strip().lower() for value in re.split(r"[,;/]", size_text) if value.strip()]
+        if size_values:
+            attributes["size"] = size_values[:4]
+    brand = _clean(product.get("store"), 80).lower()
+    if brand:
+        attributes["brand"] = [brand]
+    budget = _budget_bucket(product.get("price"))
+    if budget:
+        attributes["budget"] = [budget]
+    return attributes
+
+
+def classify_constraint(value: str) -> str:
+    """Map a disclosed constraint to one of the evaluator's question slots."""
+    lowered = value.lower()
+    if BUDGET_RE.search(lowered):
+        return "budget"
+    if MATERIAL_RE.search(lowered):
+        return "material"
+    if COLOR_RE.search(lowered):
+        return "color"
+    if SIZE_RE.search(lowered):
+        return "size"
+    if STYLE_RE.search(lowered):
+        return "style"
+    if USE_CASE_RE.search(lowered):
+        return "use_case"
+    return "feature"
 
 
 def load_jsonl(path: str | Path) -> Iterator[dict]:
@@ -166,6 +273,8 @@ class AgentConfig:
     )
     max_terms: int = 64
     candidate_count: int = 160
+    question_candidate_count: int = 100
+    minimum_attribute_coverage: float = 0.08
     rrf_constant: float = 60.0
     # Ablation on the public set showed that cosine helps as a gentle high-
     # confidence tie-breaker, but hurts when allowed to influence uncertain cases.
@@ -174,6 +283,7 @@ class AgentConfig:
     cosine_weight_high: float = 0.05
     medium_confidence: float = 0.45
     high_confidence: float = 0.80
+    include_debug: bool = False
 
 
 @dataclass
@@ -182,10 +292,14 @@ class SessionState:
     category_message: str = ""
     evidence: list[str] = field(default_factory=list)
     messages: list[str] = field(default_factory=list)
+    known_attributes: set[str] = field(default_factory=lambda: {"category"})
     asked_attributes: set[str] = field(default_factory=set)
+    no_preference_attributes: set[str] = field(default_factory=set)
+    last_asked_attribute: str | None = None
     last_query: tuple[str, ...] = ()
     page: int = 0
     mode: str = "uncertain"
+    override_active: bool = False
 
 
 class WeakArtifacts:
@@ -212,8 +326,17 @@ class WeakArtifacts:
             for line in (root / "catalog_ids.jsonl").read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
+        self.attributes = {
+            str(row["parent_asin"]): {
+                str(attribute): [str(value) for value in values]
+                for attribute, values in (row.get("attributes") or {}).items()
+            }
+            for row in load_jsonl(root / "catalog_attributes.jsonl")
+        }
         if self.matrix.shape[0] != len(self.ids):
             raise ValueError("Catalog artifact ID and matrix counts differ")
+        if len(self.attributes) != len(self.ids):
+            raise ValueError("Catalog artifact attribute and matrix counts differ")
 
 
 class Agent:
@@ -283,7 +406,15 @@ class Agent:
         )
         for attribute, pattern in checks:
             if pattern.search(message):
-                state.asked_attributes.add(attribute)
+                state.known_attributes.add(attribute)
+        disclosed = re.search(
+            r"(?:key requirement is|what matters is|what i need is)\s*:\s*(.+)",
+            message,
+            re.I,
+        )
+        if disclosed:
+            for value in disclosed.group(1).split(";"):
+                state.known_attributes.add(classify_constraint(value))
 
     def _update_state(self, state: SessionState, message: str, turn: int) -> dict[str, float]:
         if turn == 1:
@@ -294,13 +425,24 @@ class Agent:
         # non-destructive policy choices, but cannot erase valid evidence alone.
         if OVERRIDE_RE.search(message):
             state.evidence.clear()
+            state.known_attributes = {"category"}
             state.asked_attributes.clear()
+            state.no_preference_attributes.clear()
+            state.last_asked_attribute = None
             state.page = 0
+            state.override_active = True
         state.mode = mode
         state.messages.append(message)
-        if not NO_PREFERENCE_RE.search(message):
+        if NO_PREFERENCE_RE.search(message):
+            if state.last_asked_attribute:
+                state.no_preference_attributes.add(state.last_asked_attribute)
+            state.last_asked_attribute = None
+        else:
+            if state.last_asked_attribute and not OVERRIDE_RE.search(message):
+                state.known_attributes.add(state.last_asked_attribute)
             state.evidence.append(message)
             self._mark_attributes(state, message)
+            state.last_asked_attribute = None
         return probabilities
 
     def _query(self, state: SessionState) -> tuple[str, list[str]]:
@@ -345,13 +487,121 @@ class Agent:
         ranked.sort(key=lambda pair: (-pair[1], bm25_rank.get(pair[0], math.inf), pair[0]))
         return ranked
 
-    @staticmethod
-    def _next_question(state: SessionState) -> str:
+    def _attribute_utilities(
+        self,
+        state: SessionState,
+        ranked: Sequence[tuple[str, float]],
+    ) -> tuple[dict[str, float], dict[str, list[str]]]:
+        """Score unanswered slots by coverage and diversity in the candidate pool."""
+        candidates = ranked[: self.config.question_candidate_count]
+        total_weight = sum(1.0 / math.log2(rank + 2) for rank in range(len(candidates))) or 1.0
+        profile_tags = {
+            str(value).lower() for value in state.profile.get("preference_tags") or []
+        }
+        utilities: dict[str, float] = {}
+        options: dict[str, list[str]] = {}
         for attribute in QUESTION_ORDER:
-            if attribute not in state.asked_attributes:
-                state.asked_attributes.add(attribute)
-                return attribute
-        return "other"
+            if attribute == "other":
+                continue
+            if (
+                attribute in state.known_attributes
+                or attribute in state.asked_attributes
+                or attribute in state.no_preference_attributes
+            ):
+                continue
+            covered_weight = 0.0
+            value_weights: dict[str, float] = {}
+            for rank, (parent_asin, _) in enumerate(candidates):
+                values = self.artifacts.attributes.get(parent_asin, {}).get(attribute, [])
+                values = list(dict.fromkeys(value for value in values if value))
+                if not values:
+                    continue
+                weight = 1.0 / math.log2(rank + 2)
+                covered_weight += weight
+                share = weight / len(values)
+                for value in values:
+                    value_weights[value] = value_weights.get(value, 0.0) + share
+            coverage = covered_weight / total_weight
+            if coverage < self.config.minimum_attribute_coverage or not value_weights:
+                continue
+            value_total = sum(value_weights.values())
+            probabilities = [weight / value_total for weight in value_weights.values()]
+            if len(probabilities) > 1:
+                entropy = -sum(value * math.log2(value) for value in probabilities)
+                diversity = entropy / math.log2(len(probabilities))
+            else:
+                diversity = 0.0
+            profile_boost = 0.08 if profile_tags & PROFILE_ATTRIBUTE_TAGS[attribute] else 0.0
+            utilities[attribute] = (
+                ATTRIBUTE_PRIORS[attribute] * (0.58 * coverage + 0.42 * diversity)
+                + profile_boost
+            )
+            options[attribute] = [
+                value for value, _ in sorted(
+                    value_weights.items(), key=lambda pair: (-pair[1], pair[0])
+                )[:3]
+            ]
+        return utilities, options
+
+    @staticmethod
+    def _question_message(attribute: str, options: Sequence[str]) -> str:
+        clean_options = [value for value in options if 1 < len(value) <= 28]
+        if attribute in {"material", "color", "brand", "style"} and len(clean_options) >= 2:
+            first, second = clean_options[:2]
+            label = attribute.replace("_", " ")
+            return f"Do you prefer {first}, {second}, or another {label}?"
+        if attribute == "feature" and len(clean_options) >= 2:
+            return f"Would {clean_options[0]}, {clean_options[1]}, or another feature matter most?"
+        if attribute == "use_case" and len(clean_options) >= 2:
+            return f"Will you mainly use it for {clean_options[0]}, {clean_options[1]}, or something else?"
+        if attribute == "budget" and len(clean_options) >= 2:
+            return f"Should I focus on options {clean_options[0]}, {clean_options[1]}, or another budget?"
+        return PROMPTS[attribute]
+
+    def _next_question(
+        self,
+        state: SessionState,
+        ranked: Sequence[tuple[str, float]],
+    ) -> tuple[str, str, dict[str, float], list[str]]:
+        utilities, options = self._attribute_utilities(state, ranked)
+        if state.override_active:
+            # Corrections have few remaining turns.  Use the validated stable
+            # order after an override instead of experimenting with broad slots.
+            conservative_known = state.known_attributes & {"material", "color", "budget"}
+            attribute = next(
+                (
+                    value for value in QUESTION_ORDER
+                    if value not in conservative_known
+                    and value not in state.asked_attributes
+                    and value not in state.no_preference_attributes
+                ),
+                "other",
+            )
+        elif utilities:
+            order = {attribute: index for index, attribute in enumerate(QUESTION_ORDER)}
+            attribute = max(
+                utilities,
+                key=lambda value: (utilities[value], -order[value]),
+            )
+        else:
+            attribute = next(
+                (
+                    value for value in QUESTION_ORDER
+                    if value not in state.known_attributes
+                    and value not in state.asked_attributes
+                    and value not in state.no_preference_attributes
+                ),
+                "other",
+            )
+        selected_options = options.get(attribute, [])
+        state.asked_attributes.add(attribute)
+        state.last_asked_attribute = attribute
+        return (
+            attribute,
+            self._question_message(attribute, selected_options),
+            utilities,
+            selected_options,
+        )
 
     def respond(self, session_id: str, user_message: str, turn: int, top_k: int) -> dict:
         state = self._sessions.get(session_id)
@@ -381,22 +631,32 @@ class Agent:
         start = state.page * top_k
         selected = ranked[start : start + top_k]
 
-        ask_attribute = self._next_question(state)
-        return {
-            "message": PROMPTS[ask_attribute],
+        ask_attribute, question_message, question_utilities, question_options = self._next_question(
+            state, ranked
+        )
+        response = {
+            "message": question_message,
             "ask_attribute": ask_attribute,
             "recommendations": [
                 {"parent_asin": parent_asin, "score": round(score, 8)}
                 for parent_asin, score in selected
             ],
             "usage": {"prompt_tokens": 0, "completion_tokens": 0},
-            "debug": {
+        }
+        if self.config.include_debug:
+            response["debug"] = {
                 "mode": state.mode,
                 "route_probabilities": route_probabilities,
                 "retrieval_confidence": round(confidence, 6),
                 "cosine_weight": cosine_weight,
-            },
-        }
+                "known_attributes": sorted(state.known_attributes),
+                "no_preference_attributes": sorted(state.no_preference_attributes),
+                "question_utilities": {
+                    key: round(value, 6) for key, value in question_utilities.items()
+                },
+                "question_options": question_options,
+            }
+        return response
 
 
 def build_catalog_artifacts(catalog_path: Path, artifact_dir: Path) -> dict:
@@ -427,11 +687,20 @@ def build_catalog_artifacts(catalog_path: Path, artifact_dir: Path) -> dict:
     with (artifact_dir / "catalog_ids.jsonl").open("w", encoding="utf-8", newline="\n") as handle:
         for product in products:
             handle.write(json.dumps({"parent_asin": str(product["parent_asin"])}) + "\n")
+    with (artifact_dir / "catalog_attributes.jsonl").open(
+        "w", encoding="utf-8", newline="\n"
+    ) as handle:
+        for product in products:
+            handle.write(json.dumps({
+                "parent_asin": str(product["parent_asin"]),
+                "attributes": extract_product_attributes(product),
+            }, ensure_ascii=False, separators=(",", ":")) + "\n")
     return {
         "catalog_count": len(products),
         "vocabulary_size": len(vectorizer.vocabulary_),
         "matrix_shape": list(matrix.shape),
         "matrix_nnz": int(matrix.nnz),
+        "attribute_fields": list(ATTRIBUTE_PRIORS),
     }
 
 
