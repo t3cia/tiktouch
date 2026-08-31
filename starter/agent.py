@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import sqlite3
 from dataclasses import dataclass, field
@@ -66,6 +67,17 @@ def _text(value: object) -> str:
     return str(value)
 
 
+def _numeric_price(value: object) -> float | None:
+    """Return a SQLite-safe numeric price; treat unavailable labels as NULL."""
+    if value in (None, "") or isinstance(value, bool):
+        return None
+    try:
+        price = float(value)
+    except (TypeError, ValueError):
+        return None
+    return price if math.isfinite(price) and price >= 0 else None
+
+
 def _terms(text: str) -> list[str]:
     return [
         token.lower()
@@ -97,13 +109,23 @@ class Agent:
             "parent_asin UNINDEXED, title, categories, features, details, store, description, "
             "tokenize='unicode61 remove_diacritics 2')"
         )
+        cursor.execute(
+            "CREATE TABLE product_metadata("
+            "parent_asin TEXT PRIMARY KEY, price REAL)"
+        )
+        cursor.execute(
+            "CREATE INDEX product_metadata_price_idx "
+            "ON product_metadata(price) WHERE price IS NOT NULL"
+        )
         batch: list[tuple[str, str, str, str, str, str, str]] = []
+        metadata_batch: list[tuple[str, float | None]] = []
         with self.catalog_path.open(encoding="utf-8") as handle:
             for line in handle:
                 product = json.loads(line)
+                parent_asin = str(product["parent_asin"])
                 batch.append(
                     (
-                        str(product["parent_asin"]),
+                        parent_asin,
                         _text(product.get("title")),
                         _text(product.get("categories")),
                         _text(product.get("features")),
@@ -112,11 +134,21 @@ class Agent:
                         _text(product.get("description")),
                     )
                 )
+                metadata_batch.append((parent_asin, _numeric_price(product.get("price"))))
                 if len(batch) >= 1000:
                     cursor.executemany("INSERT INTO products VALUES (?, ?, ?, ?, ?, ?, ?)", batch)
+                    cursor.executemany(
+                        "INSERT INTO product_metadata(parent_asin, price) VALUES (?, ?)",
+                        metadata_batch,
+                    )
                     batch.clear()
+                    metadata_batch.clear()
         if batch:
             cursor.executemany("INSERT INTO products VALUES (?, ?, ?, ?, ?, ?, ?)", batch)
+            cursor.executemany(
+                "INSERT INTO product_metadata(parent_asin, price) VALUES (?, ?)",
+                metadata_batch,
+            )
         self.connection.commit()
 
     def reset(self, session_id: str, user_profile: dict) -> None:

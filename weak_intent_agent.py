@@ -161,6 +161,17 @@ def _budget_bucket(value: object) -> str | None:
     return "$100 or more"
 
 
+def _numeric_price(value: object) -> float | None:
+    """Return a SQLite-safe numeric price; treat unavailable labels as NULL."""
+    if value in (None, "") or isinstance(value, bool):
+        return None
+    try:
+        price = float(value)
+    except (TypeError, ValueError):
+        return None
+    return price if math.isfinite(price) and price >= 0 else None
+
+
 def extract_product_attributes(product: dict) -> dict[str, list[str]]:
     """Extract compact, user-questionable attributes from released metadata."""
     text = product_text(product).lower()
@@ -362,16 +373,36 @@ class Agent:
             "parent_asin UNINDEXED, title, categories, features, details, store, description, "
             "tokenize='unicode61 remove_diacritics 2')"
         )
+        cursor.execute(
+            "CREATE TABLE product_metadata("
+            "parent_asin TEXT PRIMARY KEY, price REAL)"
+        )
+        cursor.execute(
+            "CREATE INDEX product_metadata_price_idx "
+            "ON product_metadata(price) WHERE price IS NOT NULL"
+        )
         batch: list[tuple[str, str, str, str, str, str, str]] = []
+        metadata_batch: list[tuple[str, float | None]] = []
         for product in load_jsonl(self.catalog_path):
-            values = [str(product["parent_asin"])]
+            parent_asin = str(product["parent_asin"])
+            values = [parent_asin]
             values.extend(_index_text(product.get(field)) for field in SEARCH_FIELDS)
             batch.append(tuple(values))
+            metadata_batch.append((parent_asin, _numeric_price(product.get("price"))))
             if len(batch) >= 1000:
                 cursor.executemany("INSERT INTO products VALUES (?, ?, ?, ?, ?, ?, ?)", batch)
+                cursor.executemany(
+                    "INSERT INTO product_metadata(parent_asin, price) VALUES (?, ?)",
+                    metadata_batch,
+                )
                 batch.clear()
+                metadata_batch.clear()
         if batch:
             cursor.executemany("INSERT INTO products VALUES (?, ?, ?, ?, ?, ?, ?)", batch)
+            cursor.executemany(
+                "INSERT INTO product_metadata(parent_asin, price) VALUES (?, ?)",
+                metadata_batch,
+            )
         self.connection.commit()
 
     def reset(self, session_id: str, user_profile: dict) -> None:
