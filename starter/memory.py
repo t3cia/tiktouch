@@ -6,7 +6,7 @@ KNOWN_MATERIALS = ["leather", "cotton", "wool", "silk", "polyester", "denim", "s
 
 NEGATION_WORDS = ["not", "no", "don't want", "dont want"]
 REQUIREMENT_TRIGGERS = ["must", "must have", "must be", "needs to be", "has to be", "required", "non-negotiable"]
-
+FREE_TEXT_FIELDS = {"feature", "style", "use_case", "brand"}
 
 def is_negated(text: str, word: str) -> bool:
     """Checks if a word appears shortly after a negation phrase.
@@ -110,15 +110,20 @@ def extract_attributes(message: str):
     return found, negated
 
 
-def update_profile(profile: dict, message: str) -> dict:
-    """Called every turn. Processes message clause by clause so requirement
-    detection and negation both apply at the right precision."""
+def update_profile(profile: dict, message: str, last_asked: str = None) -> dict:
+    """Called every turn. `last_asked` is the attribute name the agent
+    asked about last turn (e.g. "feature"), if any. We can't pattern-match
+    open-ended fields like feature/style/use_case/brand, but if we know the
+    agent specifically asked about one, we can safely treat this whole
+    reply as the answer to it."""
+
+    if last_asked in FREE_TEXT_FIELDS:
+        profile[last_asked] = message.strip()
+
     for clause in get_clauses(message):
         clause_attrs, negated_keys = extract_attributes(clause)
         is_requirement = has_requirement_trigger(clause.lower())
 
-        # Explicit rejections clear the field (e.g. "not black" wipes out
-        # any earlier color we'd stored), instead of silently doing nothing.
         for key in negated_keys:
             profile[key] = None
             if key in profile["requirements"]:
