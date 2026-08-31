@@ -101,6 +101,6 @@ Our biggest limitation was the re-ranking algorithm. Given the limited time, we 
 | Angela | Conversational memory and preference override handling |
 | Phoebe | |
 | Tricia | Preference-aware reranking and integration |
-| Yao Teck | |
+| Yao Teck | User intent detection, fine tuning of BM25, dense retrieval, missing attribute follow ups |
 
 All members: Documentation and demo
