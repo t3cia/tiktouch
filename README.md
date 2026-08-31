@@ -56,8 +56,8 @@ For implementation details, see the technical documentation linked below.
 ## Technical Documentation
 
 Detailed implementation documentation
-- [bm25](docs/bm25_validation.md)
-- [dense training](docs/dense_training.md)
+- [BM25 Validation Protocol](docs/bm25_validation.md)
+- [Emulated Dense-retrieval Data](docs/dense_training.md)
 - [Conversational memory](docs/memory.md)
 - [Preference-aware reranking](docs/ranking.md)
 
@@ -99,8 +99,8 @@ Our biggest limitation was the re-ranking algorithm. Given the limited time, we 
 | Name | Contribution |
 | -- | -- |
 | Angela | Conversational memory and preference override handling |
-| Phoebe | |
-| Tricia | Preference-aware reranking and integration |
+| Phoebe | Fine tuning of BM25, dense retrieval, missing attribute follow ups, video |
+| Tricia | Preference-aware reranking and evaluation, integration |
 | Yao Teck | User intent detection, fine tuning of BM25, dense retrieval, missing attribute follow ups |
 
 All members: Documentation and demo
