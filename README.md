@@ -44,14 +44,21 @@ The reranker combines BM25 relevance with field-specific preference matches whil
 
 ## How We Built It 
 
-TikTouch uses a hybrid retrieval pipeline:
-- BM25 with SQLite FTS5 for efficient lexical retrieval
-- TF-IDF and cosine similarity for sparse similarity
-- Sentence Transformers for dense semantic retrieval
-- Structured memory for multi-turn preference tracking
-- Preference-aware reranking for final result ordering
-The system asks about product features early because they often provide a more discriminative search signal than broad attributes such as color or material.
-For implementation details, see the technical documentation linked below.
+## How We Built It
+
+TikTouch uses a **hybrid conversational product-retrieval pipeline** that combines lexical search, semantic similarity, conversational memory, and preference-aware reranking.
+
+For lexical retrieval, we use **BM25 through SQLite FTS5** to identify products containing important keywords and attributes from the user's request. We also use **TF-IDF with cosine similarity** to compare user preferences with product metadata. For broader exploratory requests, TikTouch supports **dense semantic retrieval** using the `sentence-transformers/all-MiniLM-L6-v2` model. This allows semantically related products to match even when the query and product description use different words.
+
+The system selects its retrieval approach according to the user's intent. Vague browsing requests benefit from semantic retrieval, while more specific buying requests use BM25 to retrieve a focused candidate pool.
+
+TikTouch maintains a **structured conversational memory** containing attributes such as category, material, color, size, style, brand, budget, feature, and use case. It also records hard requirements and conversation history. When users change their minds—for example, “I don't want black anymore”—the outdated preference is removed without clearing unrelated context. Answers to clarification questions are associated with the relevant memory field so they can influence later retrieval and ranking.
+
+After retrieval, a **preference-aware reranker** combines normalised BM25 relevance with bonuses for products that match the user's current preferences. Hard requirements receive stronger bonuses, known over-budget products are penalised, and products with missing prices are retained to avoid unnecessarily reducing recall. The reranker only reorders BM25's strongest candidates, allowing it to refine result quality without displacing already-relevant products.
+
+The agent prioritises clarification questions that reveal useful product features early. As more information is collected, TikTouch updates its memory, retrieval query, and ranking signals. This allows the system to balance two goals: **asking useful questions and recommending relevant products as quickly as possible**.
+
+For further implementation details, refer to the section below.
 
 ## Technical Documentation
 
