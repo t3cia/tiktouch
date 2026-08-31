@@ -58,7 +58,7 @@ For implementation details, see the technical documentation linked below.
 Detailed implementation documentation
 - [bm25](docs/bm25_validation.md)
 - [dense training](docs/dense_training.md)
-- [Conversational memory]
+- [Conversational memory](docs/memory.md)
 - [Preference-aware reranking](docs/ranking.md)
 
 ## Results
