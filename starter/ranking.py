@@ -1,116 +1,128 @@
+import re
+
 def ranking(recommendations: list[dict], memory: dict) -> list[dict]:
-        if not recommendations:
-            return []
+    if not recommendations:
+        return []
 
-        hard_requirements = memory.get("requirements")
+    hard_requirements = set(memory.get("requirements", []))
+    
+    RERANK_FIELDS = (
+        "color",
+        "material",
+        "size",
+        "brand",
+        "feature",
+        "style",
+        "use_case",
+        "budget",
+    )
+    
+    should_rerank = any(
+        memory.get(field) not in (None, "")
+        for field in RERANK_FIELDS
+    )
+    
+    if not should_rerank:
+        return sorted(
+            recommendations,
+            key=lambda product: product["search_score"],  # lower is better
+            )[:10]
 
-        def product_text(product: dict) -> str:
-            return " ".join(
-                str(product.get(field) or "")
-                for field in ("title", "categories", "details")
-            ).lower()
+    # Preserve BM25 recall: only reorder its original top 10 candidates.
+    recommendations = sorted(
+        recommendations,
+        key=lambda product: product["search_score"],  # lower FTS5 BM25 is better
+        )[:10]
 
-        def matches(text: str, value: object) -> bool:
-            return value is not None and str(value).strip().lower() in text
+    def text_for(product: dict, fields: tuple[str, ...]) -> str:
+        return " ".join(
+            str(product.get(field) or "")
+            for field in fields
+        ).lower()
 
-        def matches_size(text: str, size: object) -> bool:
-            if size is None:
-                return False
-            return bool(
-                re.search(
-                    rf"\b(?:size\s*)?{re.escape(str(size))}\b",
-                    text,
-                    re.IGNORECASE,
-                )
+    def phrase_matches(text: str, value: object) -> bool:
+        if value is None:
+            return False
+
+        pattern = r"\b" + re.escape(str(value).strip().lower()) + r"\b"
+        return bool(re.search(pattern, text))
+
+    def size_matches(product: dict, size: object) -> bool:
+        if size is None:
+            return False
+
+        text = text_for(product, ("title", "features", "details", "description"))
+        return bool(re.search(
+            rf"\b(?:size\s*)?{re.escape(str(size))}\b",
+            text,
+            re.IGNORECASE,
+        ))
+
+    lexical_scores = [-product["search_score"] for product in recommendations]
+    low, high = min(lexical_scores), max(lexical_scores)
+
+    def normalized_bm25(score: float) -> float:
+        return 1.0 if high == low else (score - low) / (high - low)
+
+    field_sources = {
+        "color": ("title", "features", "details", "description"),
+        "material": ("features", "details", "description"),
+        "brand": ("title", "store"),
+        "feature": ("features", "details", "description"),
+        "style": ("title", "features", "details", "description"),
+        "use_case": ("title", "features", "details", "description"),
+    }
+
+    soft_weights = {
+        "color": 0.04,
+        "material": 0.05,
+        "brand": 0.03,
+        "feature": 0.05,
+        "style": 0.02,
+        "use_case": 0.03,
+        "size": 0.05,
+    }
+
+    ranked = []
+
+    for product, lexical_score in zip(recommendations, lexical_scores):
+        preference_bonus = 0.0
+        reasons = []
+
+        for field, soft_weight in soft_weights.items():
+            value = memory.get(field)
+            if value is None:
+                continue
+
+            matched = (
+                size_matches(product, value)
+                if field == "size"
+                else phrase_matches(text_for(product, field_sources[field]), value)
             )
 
-    # Step 1: remove candidates that violate hard requirements.
-        eligible = []
-        for product in recommendations:
-            text = product_text(product)
-            is_eligible = True
+            if matched:
+                boost = soft_weight * (3.0 if field in hard_requirements else 1.0)
+                preference_bonus += boost
+                reasons.append(f"matches {field}: {value}")
 
-            for field in hard_requirements:
-                value = memory.get(field)
+        budget = memory.get("budget")
+        price = product.get("price")
 
-                if value is None:
-                    continue  # A field cannot be enforced without a value.
+        if budget is not None and price is not None:
+            if float(price) <= float(budget):
+                budget_boost = 0.09 if "budget" in hard_requirements else 0.03
+                preference_bonus += budget_boost
+                reasons.append("within budget")
+            else:
+                preference_bonus -= 0.09 if "budget" in hard_requirements else 0.03
+                reasons.append("over budget")
 
-                if field == "budget":                
-                    price = product.get("price")
-                    if price is None or float(price) > float(value):
-                        is_eligible = False
-                        break
-                elif field == "size":
-                    if not matches_size(text, value):
-                        is_eligible = False
-                        break
-                elif not matches(text, value):
-                    is_eligible = False
-                    break
+        result = dict(product)
+        result["rank_score"] = (
+            0.80 * normalized_bm25(lexical_score)
+            + preference_bonus
+        )
+        result["ranking_reasons"] = reasons
+        ranked.append(result)
 
-            if is_eligible:
-                eligible.append(product)
-
-        if not eligible:
-            return []
-
-        # FTS5 BM25: lower values are better, so invert and normalize.
-        lexical_scores = [-product["search_score"] for product in eligible]
-        low, high = min(lexical_scores), max(lexical_scores)
-
-        def normalized_bm25(score: float) -> float:
-            return 1.0 if high == low else (score - low) / (high - low)
-
-        preference_weights = {
-            "category": 1.0,
-            "material": 1.0,
-            "color": 0.9,
-            "style": 0.6,
-            "brand": 0.8,
-            "feature": 1.0,
-            "use_case": 0.8,
-            "size": 0.8,
-        }
-
-        ranked = []
-        for product, lexical_score in zip(eligible, lexical_scores):
-            text = product_text(product)
-            matched_weight = 0.0
-            possible_weight = 0.0
-            reasons = []
-
-            # Only non-hard fields contribute to preference ranking.
-            for field, weight in preference_weights.items():
-                if field in hard_requirements:
-                    continue
-
-                value = memory.get(field)
-                if value is None:
-                    continue
-
-                possible_weight += weight
-                did_match = (
-                    matches_size(text, value)
-                    if field == "size"
-                    else matches(text, value)
-                )
-
-                if did_match:
-                    matched_weight += weight
-                    reasons.append(f"matches {field}: {value}")
-
-            preference_score = (
-                matched_weight / possible_weight
-                if possible_weight else 0.0
-            )
-
-            product = dict(product)
-            product["rank_score"] = (
-                0.60 * normalized_bm25(lexical_score)
-                + 0.40 * preference_score
-            )
-            product["ranking_reasons"] = reasons
-            ranked.append(product)
-
-        return sorted(ranked, key=lambda product: product["rank_score"], reverse=True)[:10]
+    return sorted(ranked, key=lambda product: product["rank_score"], reverse=True)[:10]
