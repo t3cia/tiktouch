@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # TechJam Conversational E-Commerce Search Challenge
 
 Build an AI shopping agent that asks useful follow-up questions and recommends the customer's hidden target product within at most 10 turns.
@@ -96,6 +95,8 @@ docs/evaluation_config.json       scoring configuration
 docs/baseline_results.json        reproducible weak-starter reference score
 starter/agent.py                  editable weak starter
 evaluator/local_evaluator.py      public-set simulator and scorer
+weak_intent_agent.py              lightweight trained router and hybrid agent
+weak_requirements.txt             dependencies for the lightweight agent
 ```
 
 ## Judging and Submission Policy
@@ -110,7 +111,24 @@ evaluator/local_evaluator.py      public-set simulator and scorer
 
 The catalog and sessions are derived from Amazon Reviews 2023 by McAuley Lab, UCSD. See `DATA_ATTRIBUTION.md` before using or redistributing the data.
 Sessions are sampled deterministically from the official Clothing 5-core leave-last-out split and joined to the frozen catalog.
-=======
-# tiktouch
-Tiktok TechJam 2026, Group tiktouch
->>>>>>> 749df73a47778437e444f5a81146752a9389b2b4
+
+## Lightweight intent-aware agent
+
+`weak_intent_agent.py` trains a local TF-IDF conversation router, catalog cosine
+index, and retrieval-confidence model. It retains weighted BM25 as its primary
+retriever and uses cosine similarity only as a high-confidence tie-breaker. During
+training it also extracts compact product attributes. At runtime the agent tracks
+known, asked, and declined intent slots, then asks about the unanswered attribute
+with the best candidate-weighted coverage and information gain.
+
+```powershell
+python -m pip install -r weak_requirements.txt
+python weak_intent_agent.py train
+python weak_intent_agent.py evaluate --output weak_results.json
+```
+
+Trained artifacts are written to `checkpoints/weak_intent/` and are ignored by
+Git. Training is deterministic with the checked-in catalog and emulated data.
+
+Generated evaluation outputs such as `weak_results.json` are local artifacts and
+should not be committed.

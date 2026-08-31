@@ -49,6 +49,9 @@ coverage.xml
 *.py.cover
 .hypothesis/
 .pytest_cache/
+dense_index/
+checkpoints/
+weak_results.json
 cover/
 
 # Translations
