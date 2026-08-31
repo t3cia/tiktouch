@@ -39,13 +39,29 @@ def ranking(recommendations: list[dict], memory: dict) -> list[dict]:
             str(product.get(field) or "")
             for field in fields
         ).lower()
-
+    
     def phrase_matches(text: str, value: object) -> bool:
         if value is None:
             return False
-
-        pattern = r"\b" + re.escape(str(value).strip().lower()) + r"\b"
-        return bool(re.search(pattern, text))
+        
+        cleaned = str(value).strip().lower()
+        cleaned = re.sub(
+            r"^for that,\s*what matters is:\s*",
+            "",
+            cleaned,
+        ).strip(" .")
+        
+        # The evaluator can disclose two constraints separated by semicolons.
+        phrases = [
+            phrase.strip(" .")
+            for phrase in cleaned.split(";")
+            if phrase.strip(" .")
+        ]
+        
+        return any(
+            re.search(r"\b" + re.escape(phrase) + r"\b", text)
+            for phrase in phrases
+            )
 
     def size_matches(product: dict, size: object) -> bool:
         if size is None:

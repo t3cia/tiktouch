@@ -18,7 +18,7 @@ STOPWORDS = {
     "key", "requirement", "options", "exploring", "prefer", "preference", "prioritize",
 }
 QUESTION_ORDER = (
-    "material", "color", "feature", "size", "style",
+    "feature", "material", "color", "size", "style",
     "use_case", "brand", "budget",
 )
 
