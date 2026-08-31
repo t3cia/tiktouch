@@ -42,8 +42,6 @@ Broad exploratory requests use semantic retrieval, while specific buying request
 The memory component stores attributes such as category, material, color, size, style, brand, budget, feature, and use case. It also tracks hard requirements and handles preference changes across turns.
 The reranker combines BM25 relevance with field-specific preference matches while preserving the strongest retrieval candidates.
 
-## How We Built It 
-
 ## How We Built It
 
 TikTouch uses a **hybrid conversational product-retrieval pipeline** that combines lexical search, semantic similarity, conversational memory, and preference-aware reranking.
